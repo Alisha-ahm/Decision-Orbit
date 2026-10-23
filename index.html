@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en" data-mood="focus">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Decision Orbit — solve decisions, visually</title>
+<meta name="description" content="Decision Orbit: turn any decision into an orbiting system of options. Score them, and watch the best choice pull closest to the sun.">
+
+<style>
+/* ======================================================================
+   1. ROOT VARIABLES & RESET
+   ====================================================================== */
+:root{
+  --bg-deep:#05030f;
+  --bg-deep2:#0b0620;
+  --purple:#8b5cf6;
+  --cyan:#22d3ee;
+  --pink:#f472b6;
+  --yellow:#facc15;
+  --text:#f1f5f9;
+  --text-dim:#a3abc2;
+  --glass-bg:rgba(255,255,255,0.06);
+  --glass-border:rgba(255,255,255,0.14);
+  --glass-shadow:0 8px 32px rgba(0,0,0,0.45);
+  --radius-lg:20px;
+  --radius-md:14px;
+  --twinkle-speed:4s;
+  --bg-shift-speed:18s;
+  --accent-grad:linear-gradient(135deg,var(--purple),var(--cyan) 55%,var(--pink));
+}
+
+/* ---- Mood themes: each mood re-colors the palette + animation pace ---- */
+html[data-mood="calm"]{
+  --purple:#a78bfa; --cyan:#7dd3fc; --pink:#c4b5fd; --yellow:#fde68a;
+  --twinkle-speed:7s; --bg-shift-speed:32s;
+}
+html[data-mood="focus"]{
+  --purple:#38bdf8; --cyan:#22d3ee; --pink:#818cf8; --yellow:#67e8f9;
+  --twinkle-speed:4.5s; --bg-shift-speed:20s;
+}
+html[data-mood="energy"]{
+  --purple:#f97316; --cyan:#facc15; --pink:#ef4444; --yellow:#fde047;
+  --twinkle-speed:1.6s; --bg-shift-speed:8s;
+}
+
+*,*::before,*::after{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0;
+  min-height:100vh;
+  background:radial-gradient(ellipse at 50% 0%, var(--bg-deep2), var(--bg-deep) 70%);
+  color:var(--text);
+  font-family:'Segoe UI',system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+  overflow-x:hidden;
+  position:relative;
+  transition:background 1s ease;
+}
+
+/* Drifting nebula glow blobs behind everything, colored by current mood */
+body::before, body::after{
+  content:"";
+  position:fixed;
+  width:60vmax; height:60vmax;
+  border-radius:50%;
+  filter:blur(90px);
+  opacity:0.28;
+  z-index:0;
+  pointer-events:none;
+  animation:bgShift var(--bg-shift-speed) ease-in-out infinite alternate;
+}
+body::before{ background:var(--purple); top:-20vmax; left:-15vmax; }
+body::after{ background:var(--cyan); bottom:-25vmax; right:-15vmax; animation-delay:-4s; }
+
+@keyframes bgShift{
+  0%{ transform:translate(0,0) scale(1); }
+  100%{ transform:translate(6vmax,5vmax) scale(1.15); }
+}
+
+/* Starfield */
+#stars-bg{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+.star{
+  position:absolute;
+  background:#fff;
+  border-radius:50%;
+  animation-name:twinkle;
+  animation-iteration-count:infinite;
+  animation-timing-function:ease-in-out;
+}
+@keyframes twinkle{
+  0%,100%{ opacity:0.15; transform:scale(0.8); }
+  50%{ opacity:1; transform:scale(1.3); }
+}
+
+a{ color:inherit; }
+
+/* ======================================================================
+   2. LAYOUT SHELL (header / controls / footer)
+   ====================================================================== */
+.app-header{
+  position:relative; z-index:2;
+  display:flex; flex-wrap:wrap; gap:12px;
+  align-items:center; justify-content:space-between;
+  padding:18px clamp(14px,4vw,40px) 6px;
+}
+.app-header h1{
+  margin:0;
+  font-size:clamp(1.2rem,3vw,1.7rem);
+  background:var(--accent-grad);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+  letter-spacing:0.5px;
+}
+.info-icon{ cursor:help; margin-left:6px; opacity:0.8; font-size:0.85em; }
+
+.mood-switch{
+  display:flex; gap:6px;
+  background:var(--glass-bg);
+  border:1px solid var(--glass-border);
+  padding:4px; border-radius:999px;
+  backdrop-filter:blur(10px);
+}
+.mood-switch button{
+  border:none; background:transparent; color:var(--text-dim);
+  padding:6px 12px; border-radius:999px; cursor:pointer;
+  font-size:0.82rem; font-weight:600; transition:all .25s;
+  white-space:nowrap;
+}
+.mood-switch button.active{
+  background:var(--accent-grad); color:#0a0616;
+  box-shadow:0 0 14px rgba(255,255,255,0.25);
+}
+.mood-switch button:hover{ color:var(--text); }
+
+.glass{
+  background:var(--glass-bg);
+  border:1px solid var(--glass-border);
+  border-radius:var(--radius-lg);
+  box-shadow:var(--glass-shadow);
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+}
+
+.controls{
+  position:relative; z-index:2;
+  margin:10px clamp(14px,4vw,40px) 0;
+  padding:18px 20px;
+  display:flex; flex-wrap:wrap; gap:16px;
+  align-items:flex-end;
+}
+.control-row{ display:flex; flex-direction:column; gap:6px; flex:1 1 220px; min-width:180px; }
+.control-row label{ font-size:0.78rem; color:var(--text-dim); font-weight:600; letter-spacing:0.3px; }
+.control-row input[type="text"]{
+  background:rgba(255,255,255,0.06);
+  border:1px solid var(--glass-border);
+  color:var(--text); padding:10px 12px; border-radius:var(--radius-md);
+  font-size:0.95rem; outline:none; transition:border-color .2s, box-shadow .2s;
+}
+.control-row input[type="text"]:focus{ border-color:var(--cyan); box-shadow:0 0 0 3px rgba(34,211,238,0.2); }
+.option-add{ display:flex; gap:8px; }
+.option-add input{ flex:1; }
+
+button{ font-family:inherit; }
+.option-add button, .btn-solve, .btn-reset{
+  cursor:pointer; border:none; border-radius:var(--radius-md);
+  padding:10px 16px; font-weight:700; font-size:0.9rem;
+  transition:transform .15s ease, box-shadow .2s ease, opacity .2s;
+  white-space:nowrap;
+}
+.option-add button{ background:rgba(255,255,255,0.1); color:var(--text); border:1px solid var(--glass-border); }
+.option-add button:hover{ background:rgba(255,255,255,0.18); }
+
+.buttons-row{ flex:0 0 auto; flex-direction:row; gap:10px; }
+.btn-solve{ background:var(--accent-grad); color:#0a0616; box-shadow:0 0 20px rgba(139,92,246,0.45); }
+.btn-solve:hover{ transform:translateY(-2px); box-shadow:0 0 28px rgba(139,92,246,0.7); }
+.btn-reset{ background:rgba(255,255,255,0.08); color:var(--text); border:1px solid var(--glass-border); }
+.btn-reset:hover{ background:rgba(255,80,80,0.18); border-color:rgba(255,120,120,0.4); }
+button:active{ transform:scale(0.96); }
+
+.app-footer{
+  position:relative; z-index:2;
+  text-align:center; color:var(--text-dim); font-size:0.78rem;
+  padding:10px 20px 26px;
+}
+
+/* ======================================================================
+   3. ORBIT STAGE (sun + rings + planets)
+   ====================================================================== */
+.orbit-stage{
+  position:relative; z-index:1;
+  width:min(920px,94vw);
+  height:min(640px,62vh);
+  min-height:360px;
+  margin:18px auto 6px;
+}
+.orbit-stage.solving .orbit-ring{ transition:width 0.1s linear, height 0.1s linear, opacity .4s; }
+
+.empty-hint{
+  position:absolute; left:50%; top:72%; transform:translate(-50%,0);
+  color:var(--text-dim); font-size:0.85rem; text-align:center;
+  width:80%; pointer-events:none;
+}
+
+#ringsLayer, #planetsLayer, #particleLayer{ position:absolute; inset:0; }
+#particleLayer{ pointer-events:none; overflow:visible; }
+
+.orbit-ring{
+  position:absolute; left:50%; top:50%;
+  transform:translate(-50%,-50%);
+  border-radius:50%;
+  border:1px dashed rgba(255,255,255,0.16);
+  pointer-events:none;
+  transition:border-color .3s, box-shadow .3s, opacity .4s;
+}
+.orbit-ring.highlight{
+  border-color:var(--cyan);
+  box-shadow:0 0 18px rgba(34,211,238,0.35) inset;
+}
+
+.sun{
+  position:absolute; left:50%; top:50%;
+  width:clamp(92px,14vw,150px); aspect-ratio:1;
+  transform:translate(-50%,-50%);
+  border-radius:50%;
+  background:radial-gradient(circle at 35% 32%, #fff, var(--cyan) 28%, var(--purple) 65%, var(--pink) 100%);
+  display:flex; align-items:center; justify-content:center;
+  text-align:center; padding:10px;
+  box-shadow:0 0 50px var(--cyan), 0 0 100px var(--purple);
+  animation:sunPulse 3.4s ease-in-out infinite;
+  z-index:3;
+}
+.sun.pulse-strong{ animation:sunPulseStrong 0.9s ease-in-out infinite; }
+@keyframes sunPulse{
+  0%,100%{ box-shadow:0 0 40px var(--cyan), 0 0 80px var(--purple); }
+  50%{ box-shadow:0 0 65px var(--cyan), 0 0 120px var(--purple); }
+}
+@keyframes sunPulseStrong{
+  0%,100%{ box-shadow:0 0 60px var(--yellow), 0 0 130px var(--pink); transform:translate(-50%,-50%) scale(1); }
+  50%{ box-shadow:0 0 110px var(--yellow), 0 0 200px var(--pink); transform:translate(-50%,-50%) scale(1.08); }
+}
+.sun-label{
+  color:#140a24; font-weight:800; font-size:clamp(0.68rem,1.3vw,0.9rem);
+  line-height:1.2; word-break:break-word; text-shadow:0 1px 1px rgba(255,255,255,0.35);
+}
+
+.planet{
+  position:absolute; left:0; top:0;
+  border-radius:50%;
+  background:radial-gradient(circle at 32% 30%, #fff, var(--purple) 45%, var(--cyan) 100%);
+  cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  transition:box-shadow .35s, filter .35s, opacity .4s, width .4s, height .4s;
+  z-index:4;
+  animation:popIn .4s ease;
+}
+.planet:hover{ filter:brightness(1.25); }
+.planet:hover ~ .planet-label, .planet:hover{ }
+.planet.active{ outline:2px solid var(--cyan); outline-offset:3px; }
+.planet.winner{
+  animation:winnerPulse 0.7s ease-in-out infinite;
+  z-index:6;
+}
+@keyframes winnerPulse{
+  0%,100%{ filter:brightness(1.3) saturate(1.3); transform-origin:center; }
+  50%{ filter:brightness(1.8) saturate(1.6); }
+}
+@keyframes popIn{
+  0%{ opacity:0; transform:scale(0); }
+  100%{ opacity:1; }
+}
+.planet-label{
+  position:absolute; top:105%; left:50%; transform:translateX(-50%);
+  white-space:nowrap; font-size:0.72rem; color:var(--text);
+  text-shadow:0 1px 4px rgba(0,0,0,0.8); pointer-events:none;
+  font-weight:600;
+}
+.planet-del{
+  position:absolute; top:-8px; right:-8px;
+  width:18px; height:18px; border-radius:50%;
+  background:rgba(20,10,30,0.85); color:#fff; border:1px solid rgba(255,255,255,0.3);
+  font-size:12px; line-height:1; cursor:pointer; opacity:0; transition:opacity .2s;
+  display:flex; align-items:center; justify-content:center; padding:0;
+}
+.planet:hover .planet-del{ opacity:1; }
+
+/* planet hover scale uses JS-driven transform base + CSS zoom trick via scale wrapper */
+.planet:hover{ box-shadow:0 0 34px rgba(255,255,255,0.55) !important; }
+
+/* Particles */
+.particle{
+  position:absolute; left:0; top:0; border-radius:50%;
+  pointer-events:none;
+  animation:particleFly 950ms ease-out forwards;
+}
+@keyframes particleFly{
+  to{ transform:translate(var(--dx),var(--dy)) scale(0); opacity:0; }
+}
+
+/* ======================================================================
+   4. OPTION PANEL (slide-in)
+   ====================================================================== */
+.option-panel{
+  position:fixed; top:0; right:0; height:100%;
+  width:320px; max-width:92vw;
+  padding:26px 22px; z-index:50;
+  transform:translateX(120%);
+  transition:transform .45s cubic-bezier(.2,.9,.3,1);
+  overflow-y:auto;
+  border-radius:var(--radius-lg) 0 0 var(--radius-lg);
+}
+.option-panel.open{ transform:translateX(0); }
+.close-btn{
+  position:absolute; top:14px; right:16px;
+  background:transparent; border:none; color:var(--text);
+  font-size:1.5rem; cursor:pointer; line-height:1;
+}
+#panelTitle{ margin:6px 30px 2px 0; font-size:1.2rem; word-break:break-word; }
+.score-badge{
+  display:inline-block; margin-bottom:18px; padding:5px 12px;
+  border-radius:999px; background:var(--accent-grad); color:#0a0616;
+  font-weight:800; font-size:0.85rem;
+}
+.sliders{ display:flex; flex-direction:column; gap:16px; }
+.slider-row label{
+  display:flex; justify-content:space-between; font-size:0.85rem;
+  color:var(--text-dim); margin-bottom:6px; font-weight:600;
+}
+.slider-row label span.val{ color:var(--cyan); font-weight:800; }
+input[type="range"]{
+  -webkit-appearance:none; width:100%; height:6px; border-radius:4px;
+  background:linear-gradient(90deg,var(--purple),var(--cyan),var(--pink));
+  outline:none; cursor:pointer;
+}
+input[type="range"]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:18px; height:18px; border-radius:50%;
+  background:#fff; border:3px solid var(--purple); cursor:pointer;
+  box-shadow:0 0 8px rgba(255,255,255,0.7);
+}
+input[type="range"]::-moz-range-thumb{
+  width:18px; height:18px; border-radius:50%; background:#fff;
+  border:3px solid var(--purple); cursor:pointer;
+}
+.btn-delete{
+  margin-top:24px; width:100%; padding:10px; border-radius:var(--radius-md);
+  background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4);
+  color:#fecaca; font-weight:700; cursor:pointer; transition:background .2s;
+}
+.btn-delete:hover{ background:rgba(239,68,68,0.3); }
+
+/* ======================================================================
+   5. RESULT CARD
+   ====================================================================== */
+.result-card{
+  position:fixed; left:50%; bottom:-420px;
+  transform:translateX(-50%);
+  width:min(440px,92vw);
+  padding:26px 26px 22px;
+  text-align:center; z-index:60;
+  transition:bottom .55s cubic-bezier(.2,.9,.3,1), opacity .5s;
+  opacity:0;
+}
+.result-card.show{ bottom:34px; opacity:1; }
+.result-card h2{ margin:0 0 10px; font-size:1.3rem; }
+#resultName{
+  font-size:1.15rem; font-weight:800; margin:4px 0 10px;
+  background:var(--accent-grad); -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+#resultReason{ color:var(--text-dim); font-size:0.92rem; line-height:1.4; margin:0 0 18px; }
+.result-card button{
+  background:var(--accent-grad); color:#0a0616; border:none; font-weight:800;
+  padding:9px 22px; border-radius:999px; cursor:pointer;
+}
+
+/* ======================================================================
+   6. RESPONSIVE
+   ====================================================================== */
+@media (max-width:700px){
+  .app-header{ justify-content:center; text-align:center; }
+  .controls{ flex-direction:column; align-items:stretch; }
+  .buttons-row{ flex-direction:row; justify-content:stretch; }
+  .buttons-row button{ flex:1; }
+  .option-panel{
+    top:auto; bottom:0; left:0; right:0; width:100%; max-width:100%;
+    height:auto; max-height:82vh;
+    border-radius:var(--radius-lg) var(--radius-lg) 0 0;
+    transform:translateY(120%);
+  }
+  .option-panel.open{ transform:translateY(0); }
+  .orbit-stage{ height:min(520px,56vh); min-height:320px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Twinkling star layer (populated by JS) -->
+<div id="stars-bg" aria-hidden="true"></div>
+
+<!-- ============================ HEADER ============================ -->
+<header class="app-header">
+  <h1>🪐 Decision Orbit</h1>
+  <div class="mood-switch" role="group" aria-label="Mood mode">
+    <button type="button" data-mood-btn="calm">🌙 Calm</button>
+    <button type="button" data-mood-btn="focus" class="active">🎯 Focus</button>
+    <button type="button" data-mood-btn="energy">⚡ Energy</button>
+  </div>
+</header>
+
+<!-- ============================ CONTROLS ============================ -->
+<section class="controls glass">
+  <div class="control-row">
+    <label for="problemInput">Your decision / problem</label>
+    <input id="problemInput" type="text" placeholder="e.g. Which laptop should I buy?" maxlength="80" autocomplete="off">
+  </div>
+  <div class="control-row">
+    <label for="optionInput">Add an option</label>
+    <div class="option-add">
+      <input id="optionInput" type="text" placeholder="e.g. MacBook Air" maxlength="40" autocomplete="off">
+      <button id="addOptionBtn" type="button">+ Add</button>
+    </div>
+  </div>
+  <div class="control-row buttons-row">
+    <button id="solveBtn" class="btn-solve" type="button">✨ Solve</button>
+    <button id="resetBtn" class="btn-reset" type="button">↺ Reset</button>
+  </div>
+</section>
+
+<!-- ============================ ORBIT STAGE ============================ -->
+<main id="orbitStage" class="orbit-stage">
+  <p id="emptyHint" class="empty-hint">Add options below — each one becomes a planet ✨</p>
+  <div id="ringsLayer" aria-hidden="true"></div>
+  <div id="sun" class="sun">
+    <span id="sunLabel" class="sun-label">Your Decision</span>
+  </div>
+  <div id="planetsLayer"></div>
+  <div id="particleLayer" aria-hidden="true"></div>
+</main>
+
+<!-- ============================ OPTION PANEL ============================ -->
+<aside id="optionPanel" class="option-panel glass" aria-hidden="true">
+  <button id="closePanelBtn" class="close-btn" aria-label="Close panel">×</button>
+  <h2 id="panelTitle">Option name</h2>
+  <div id="panelScore" class="score-badge">Score: 0 / 100</div>
+  <div class="sliders">
+    <div class="slider-row">
+      <label>💰 Cost <span class="val" id="val-cost">5</span></label>
+      <input type="range" id="slider-cost" min="1" max="10" value="5">
+    </div>
+    <div class="slider-row">
+      <label>🛠️ Effort <span class="val" id="val-effort">5</span></label>
+      <input type="range" id="slider-effort" min="1" max="10" value="5">
+    </div>
+    <div class="slider-row">
+      <label>⏳ Time <span class="val" id="val-time">5</span></label>
+      <input type="range" id="slider-time" min="1" max="10" value="5">
+    </div>
+    <div class="slider-row">
+      <label>🎁 Benefit <span class="val" id="val-benefit">5</span></label>
+      <input type="range" id="slider-benefit" min="1" max="10" value="5">
+    </div>
+    <div class="slider-row">
+      <label>⚠️ Risk <span class="val" id="val-risk">5</span></label>
+      <input type="range" id="slider-risk" min="1" max="10" value="5">
+    </div>
+  </div>
+  <button id="deleteOptionBtn" class="btn-delete" type="button">🗑 Delete this option</button>
+</aside>
+
+<!-- ============================ RESULT CARD ============================ -->
+<div id="resultCard" class="result-card glass" aria-hidden="true">
+  <h2>🏆 Best choice</h2>
+  <p id="resultName">—</p>
+  <p id="resultReason">—</p>
+  <button id="closeResultBtn" type="button">Close</button>
+</div>
+
+<footer class="app-footer">
+  <span class="info-icon" title="Score = Benefit×2 − (Cost+Effort+Time+Risk), normalized to 0–100. Higher score = closer orbit + brighter glow.">ℹ️ How scoring works</span>
+  &nbsp;·&nbsp; Click a planet to score it. Your session saves automatically in this browser.
+</footer>
+
+<script>
+/* ========================================================================
+   DECISION ORBIT — APPLICATION SCRIPT
+   Sections: STATE & PERSISTENCE · DOM REFS · STARFIELD · SCORING ·
+             ORBIT MATH · RENDERING · ANIMATION LOOP · SOLVE/PARTICLES ·
+             PANEL · EVENTS · MOOD · INIT
+   ======================================================================== */
+
+(function(){
+  "use strict";
+
+  /* ---------------------------------------------------------------------
+     STATE & PERSISTENCE
+     --------------------------------------------------------------------- */
+  const STORAGE_KEY = "decisionOrbit.v1";
+  const MOOD_SPEED = { calm:0.5, focus:1, energy:1.9 };
+
+  function genId(){
+    return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2,8);
+  }
+  function numOr(v, fallback){
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(10, Math.max(1, n)) : fallback;
+  }
+  function defaultState(){
+    return { problem:"", mood:"focus", options:[] };
+  }
+  function loadState(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return defaultState();
+      const parsed = JSON.parse(raw);
+      const options = Array.isArray(parsed.options) ? parsed.options.map(o => ({
+        id: o.id || genId(),
+        name: (o.name || "Option").toString().slice(0,40),
+        cost: numOr(o.cost,5), effort: numOr(o.effort,5), time: numOr(o.time,5),
+        benefit: numOr(o.benefit,5), risk: numOr(o.risk,5)
+      })) : [];
+      return {
+        problem: typeof parsed.problem === "string" ? parsed.problem : "",
+        mood: ["calm","focus","energy"].includes(parsed.mood) ? parsed.mood : "focus",
+        options
+      };
+    }catch(e){
+      console.warn("Decision Orbit: could not read saved session, starting fresh.", e);
+      return defaultState();
+    }
+  }
+  function saveState(){
+    const toSave = {
+      problem: state.problem,
+      mood: state.mood,
+      options: state.options.map(o => ({
+        id:o.id, name:o.name, cost:o.cost, effort:o.effort, time:o.time, benefit:o.benefit, risk:o.risk
+      }))
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  }
+
+  let state = loadState();
+  let solving = false;     // true only during the solve tween
+  let solved = false;      // true once result card is showing
+  let winnerId = null;
+  let selectedId = null;   // option currently open in the side panel
+  let moodSpeedMult = MOOD_SPEED[state.mood] || 1;
+
+  // runtime-only orbital data (not persisted): angle + speed + solve overrides
+  const runtime = new Map();
+
+  /* ---------------------------------------------------------------------
+     DOM REFERENCES
+     --------------------------------------------------------------------- */
+  const starsBg       = document.getElementById("stars-bg");
+  const problemInput  = document.getElementById("problemInput");
+  const optionInput   = document.getElementById("optionInput");
+  const addOptionBtn  = document.getElementById("addOptionBtn");
+  const solveBtn      = document.getElementById("solveBtn");
+  const resetBtn      = document.getElementById("resetBtn");
+  const stage         = document.getElementById("orbitStage");
+  const emptyHint     = document.getElementById("emptyHint");
+  const ringsLayer    = document.getElementById("ringsLayer");
+  const planetsLayer  = document.getElementById("planetsLayer");
+  const particleLayer = document.getElementById("particleLayer");
+  const sunEl         = document.getElementById("sun");
+  const sunLabel      = document.getElementById("sunLabel");
+
+  const panel          = document.getElementById("optionPanel");
+  const closePanelBtn  = document.getElementById("closePanelBtn");
+  const panelTitle     = document.getElementById("panelTitle");
+  const panelScore     = document.getElementById("panelScore");
+  const deleteOptionBtn= document.getElementById("deleteOptionBtn");
+
+  const resultCard    = document.getElementById("resultCard");
+  const resultName    = document.getElementById("resultName");
+  const resultReason  = document.getElementById("resultReason");
+  const closeResultBtn= document.getElementById("closeResultBtn");
+
+  const SLIDERS = ["cost","effort","time","benefit","risk"].map(key => ({
+    key,
+    el: document.getElementById("slider-" + key),
+    valEl: document.getElementById("val-" + key)
+  }));
+
+  const planetEls = new Map(); // id -> DOM element
+  const ringEls   = new Map(); // id -> DOM element
+
+  /* ---------------------------------------------------------------------
+     STARFIELD (decorative, generated once)
+     --------------------------------------------------------------------- */
+  function buildStars(){
+    const frag = document.createDocumentFragment();
+    const COUNT = 140;
+    for(let i=0;i<COUNT;i++){
+      const s = document.createElement("div");
+      s.className = "star";
+      const size = (Math.random()*2 + 1).toFixed(2);
+      s.style.width = size + "px";
+      s.style.height = size + "px";
+      s.style.left = (Math.random()*100) + "%";
+      s.style.top = (Math.random()*100) + "%";
+      const baseDur = (0.6 + Math.random()*1.6).toFixed(2);
+      s.style.animationDuration = `calc(var(--twinkle-speed) * ${baseDur})`;
+      s.style.animationDelay = (Math.random()*5).toFixed(2) + "s";
+      frag.appendChild(s);
+    }
+    starsBg.appendChild(frag);
+  }
+
+  /* ---------------------------------------------------------------------
+     SCORING
+     Formula: raw = Benefit*2 - (Cost + Effort + Time + Risk)
+     Benefit is the only positive driver (double-weighted); the other four
+     criteria are costs/penalties. Raw range with 1-10 sliders is
+     [-38, 16]; we normalize that to a clean 0-100 scale.
+     --------------------------------------------------------------------- */
+  function computeScore(opt){
+    const benefit = numOr(opt.benefit,5), cost = numOr(opt.cost,5),
+          effort  = numOr(opt.effort,5),  time  = numOr(opt.time,5),
+          risk    = numOr(opt.risk,5);
+    const raw = benefit*2 - (cost + effort + time + risk);
+    const MIN = 2*1 - 40;   // worst possible raw value  = -38
+    const MAX = 2*10 - 4;   // best possible raw value   =  16
+    const norm = ((raw - MIN) / (MAX - MIN)) * 100;
+    return Math.round(Math.max(0, Math.min(100, norm)));
+  }
+
+  function joinList(arr){
+    if(arr.length === 1) return arr[0];
+    if(arr.length === 2) return arr[0] + " and " + arr[1];
+    return arr.slice(0,-1).join(", ") + ", and " + arr[arr.length-1];
+  }
+  function describeOption(opt){
+    const strengths = [], weaknesses = [];
+    if(opt.benefit >= 7) strengths.push("high benefit");
+    if(opt.cost <= 4)    strengths.push("low cost");
+    if(opt.effort <= 4)  strengths.push("low effort");
+    if(opt.time <= 4)    strengths.push("a fast timeline");
+    if(opt.risk <= 4)    strengths.push("low risk");
+    if(opt.benefit <= 4) weaknesses.push("limited benefit");
+    if(opt.cost >= 7)    weaknesses.push("higher cost");
+    if(opt.effort >= 7)  weaknesses.push("more effort");
+    if(opt.time >= 7)    weaknesses.push("a slower timeline");
+    if(opt.risk >= 7)    weaknesses.push("more risk");
+
+    if(strengths.length){
+      let s = "It stands out with " + joinList(strengths);
+      s += weaknesses.length ? (", despite " + joinList(weaknesses) + ".") : ".";
+      return s;
+    }
+    return "It edges out the rest with the most balanced overall profile.";
+  }
+
+  /* ---------------------------------------------------------------------
+     ORBIT MATH
+     --------------------------------------------------------------------- */
+  let cachedMetrics = { cx:0, cy:0, minR:60, maxR:200 };
+  function refreshMetrics(){
+    const rect = stage.getBoundingClientRect();
+    const cx = rect.width / 2, cy = rect.height / 2;
+    const maxR = Math.max(60, Math.min(rect.width, rect.height) / 2 - 44);
+    const minR = maxR * 0.26;
+    cachedMetrics = { cx, cy, minR, maxR };
+  }
+  // Higher score -> smaller radius (closer to the sun).
+  function scoreToRadius(score, metrics){
+    const { minR, maxR } = metrics;
+    return maxR - (score/100) * (maxR - minR);
+  }
+  function glowColorForScore(score){
+    if(score >= 70) return "var(--cyan)";
+    if(score >= 40) return "var(--purple)";
+    return "var(--pink)";
+  }
+
+  /* ---------------------------------------------------------------------
+     RENDERING — build/remove DOM nodes to match state.options
+     --------------------------------------------------------------------- */
+  function findOption(id){ return state.options.find(o => o.id === id); }
+
+  function createPlanetElements(opt){
+    const el = document.createElement("div");
+    el.className = "planet";
+    el.dataset.id = opt.id;
+    el.innerHTML =
+      '<button class="planet-del" type="button" aria-label="Delete option">×</button>' +
+      '<span class="planet-label"></span>';
+    el.querySelector(".planet-label").textContent = opt.name;
+
+    el.addEventListener("click", (e) => {
+      if(e.target.classList.contains("planet-del")) return;
+      openPanel(opt.id);
+    });
+    el.querySelector(".planet-del").addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteOption(opt.id);
+    });
+    el.addEventListener("mouseenter", () => {
+      const ring = ringEls.get(opt.id);
+      if(ring) ring.classList.add("highlight");
+    });
+    el.addEventListener("mouseleave", () => {
+      const ring = ringEls.get(opt.id);
+      if(ring && selectedId !== opt.id) ring.classList.remove("highlight");
+    });
+
+    planetsLayer.appendChild(el);
+    planetEls.set(opt.id, el);
+  }
+
+  function createRingElement(opt){
+    const ring = document.createElement("div");
+    ring.className = "orbit-ring";
+    ring.dataset.id = opt.id;
+    ringsLayer.appendChild(ring);
+    ringEls.set(opt.id, ring);
+  }
+
+  function renderOptionsDOM(){
+    const currentIds = new Set(state.options.map(o => o.id));
+
+    for(const [id, el] of Array.from(planetEls)){
+      if(!currentIds.has(id)){ el.remove(); planetEls.delete(id); }
+    }
+    for(const [id, el] of Array.from(ringEls)){
+      if(!currentIds.has(id)){ el.remove(); ringEls.delete(id); }
+    }
+    for(const [id] of Array.from(runtime)){
+      if(!currentIds.has(id)) runtime.delete(id);
+    }
+
+    state.options.forEach(opt => {
+      if(!planetEls.has(opt.id)) createPlanetElements(opt);
+      if(!ringEls.has(opt.id)) createRingElement(opt);
+      if(!runtime.has(opt.id)){
+        runtime.set(opt.id, {
+          angle: Math.random() * Math.PI * 2,
+          speed: 0.15 + Math.random() * 0.22,
+          overrideRadius: null,
+          overrideOpacity: null
+        });
+      }
+    });
+
+    updateEmptyHint();
+  }
+
+  function updateEmptyHint(){
+    emptyHint.style.display = state.options.length ? "none" : "block";
+  }
+
+  function updatePlanetDOM(opt, x, y, score, r){
+    const el = planetEls.get(opt.id);
+    if(!el) return;
+    const size = 30 + (score/100) * 22;
+    el.style.width = size + "px";
+    el.style.height = size + "px";
+    el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+    const opacity = r.overrideOpacity != null ? r.overrideOpacity : (0.45 + (score/100) * 0.55);
+    el.style.opacity = opacity;
+    const glow = 8 + (score/100) * 26;
+    const color = glowColorForScore(score);
+    el.style.boxShadow = `0 0 ${glow}px ${color}, 0 0 ${glow*2}px ${color}`;
+  }
+  function updateRingDOM(opt, radius){
+    const ring = ringEls.get(opt.id);
+    if(!ring) return;
+    ring.style.width = (radius*2) + "px";
+    ring.style.height = (radius*2) + "px";
+  }
+
+  /* ---------------------------------------------------------------------
+     ANIMATION LOOP (requestAnimationFrame)
+     --------------------------------------------------------------------- */
+  let lastTime = null;
+  function animate(ts){
+    if(lastTime == null) lastTime = ts;
+    const dt = Math.min(0.05, (ts - lastTime) / 1000); // clamp big jumps (tab switch)
+    lastTime = ts;
+
+    if(!solving && !solved){
+      state.options.forEach(opt => {
+        const r = runtime.get(opt.id);
+        if(r) r.angle += r.speed * dt * moodSpeedMult;
+      });
+    }
+
+    state.options.forEach(opt => {
+      const r = runtime.get(opt.id);
+      if(!r) return;
+      const score = computeScore(opt);
+      const baseRadius = scoreToRadius(score, cachedMetrics);
+      const radius = r.overrideRadius != null ? r.overrideRadius : baseRadius;
+      const x = cachedMetrics.cx + radius * Math.cos(r.angle);
+      const y = cachedMetrics.cy + radius * Math.sin(r.angle);
+      updatePlanetDOM(opt, x, y, score, r);
+      updateRingDOM(opt, radius);
+    });
+
+    requestAnimationFrame(animate);
+  }
+
+  /* ---------------------------------------------------------------------
+     TWEEN HELPER (used for the Solve zoom + reset-back animation)
+     --------------------------------------------------------------------- */
+  function easeInOutCubic(t){ return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2; }
+  function tweenValue(from, to, duration, onUpdate, onComplete){
+    const start = performance.now();
+    function step(now){
+      const t = Math.min(1, (now - start) / duration);
+      onUpdate(from + (to - from) * easeInOutCubic(t));
+      if(t < 1) requestAnimationFrame(step); else if(onComplete) onComplete();
+    }
+    requestAnimationFrame(step);
+  }
+
+  /* ---------------------------------------------------------------------
+     SOLVE + PARTICLES
+     --------------------------------------------------------------------- */
+  function spawnParticles(cx, cy){
+    const colors = ["#8b5cf6","#22d3ee","#f472b6","#facc15","#ffffff"];
+    for(let i=0;i<30;i++){
+      const p = document.createElement("div");
+      p.className = "particle";
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 60 + Math.random() * 150;
+      p.style.setProperty("--dx", (Math.cos(angle)*dist) + "px");
+      p.style.setProperty("--dy", (Math.sin(angle)*dist) + "px");
+      p.style.left = cx + "px";
+      p.style.top = cy + "px";
+      p.style.background = colors[Math.floor(Math.random()*colors.length)];
+      const size = 4 + Math.random()*5;
+      p.style.width = size + "px";
+      p.style.height = size + "px";
+      particleLayer.appendChild(p);
+      setTimeout(() => p.remove(), 1000);
+    }
+  }
+
+  function solve(){
+    if(solving || solved) return;
+    if(state.options.length < 2){
+      alert("Add at least two options so there's something to compare!");
+      return;
+    }
+    solving = true;
+    stage.classList.add("solving");
+    closePanel();
+
+    const scored = state.options.map(o => ({ opt:o, score: computeScore(o) }));
+    const maxScore = Math.max(...scored.map(s => s.score));
+    const winner = scored.find(s => s.score === maxScore).opt;
+    winnerId = winner.id;
+
+    let pending = state.options.length;
+    const metrics = cachedMetrics;
+
+    state.options.forEach(opt => {
+      const r = runtime.get(opt.id);
+      const score = computeScore(opt);
+      const baseRadius = scoreToRadius(score, metrics);
+
+      if(opt.id === winner.id){
+        tweenValue(baseRadius, Math.max(16, metrics.minR*0.16), 1100, v => { r.overrideRadius = v; }, () => {
+          done();
+          finishSolveEffects(winner, metrics);
+        });
+      } else {
+        tweenValue(baseRadius, baseRadius*1.22, 900, v => { r.overrideRadius = v; r.overrideOpacity = 0.3; }, done);
+      }
+    });
+    function done(){ pending--; }
+
+    saveState();
+  }
+
+  function finishSolveEffects(winner, metrics){
+    solving = false;
+    solved = true;
+    sunEl.classList.add("pulse-strong");
+    const winnerEl = planetEls.get(winner.id);
+    if(winnerEl) winnerEl.classList.add("winner");
+    spawnParticles(metrics.cx, metrics.cy);
+    setTimeout(() => showResultCard(winner), 150);
+  }
+
+  function showResultCard(winner){
+    const score = computeScore(winner);
+    resultName.textContent = `${winner.name} — Score ${score}/100`;
+    resultReason.textContent = describeOption(winner);
+    resultCard.classList.add("show");
+    resultCard.setAttribute("aria-hidden", "false");
+  }
+
+  function closeResult(){
+    resultCard.classList.remove("show");
+    resultCard.setAttribute("aria-hidden", "true");
+    stage.classList.remove("solving");
+    if(winnerId){
+      const winnerEl = planetEls.get(winnerId);
+      if(winnerEl) winnerEl.classList.remove("winner");
+    }
+    sunEl.classList.remove("pulse-strong");
+
+    const metrics = cachedMetrics;
+    state.options.forEach(opt => {
+      const r = runtime.get(opt.id);
+      if(!r) return;
+      const score = computeScore(opt);
+      const target = scoreToRadius(score, metrics);
+      const start = r.overrideRadius != null ? r.overrideRadius : target;
+      tweenValue(start, target, 600, v => { r.overrideRadius = v; }, () => {
+        r.overrideRadius = null;
+        r.overrideOpacity = null;
+      });
+    });
+
+    solved = false;
+    winnerId = null;
+  }
+
+  /* ---------------------------------------------------------------------
+     OPTION PANEL
+     --------------------------------------------------------------------- */
+  function openPanel(id){
+    if(solving || solved) return; // no editing mid-solve
+    selectedId = id;
+    const opt = findOption(id);
+    if(!opt) return;
+
+    panelTitle.textContent = opt.name;
+    SLIDERS.forEach(s => {
+      s.el.value = opt[s.key];
+      s.valEl.textContent = opt[s.key];
+    });
+    updatePanelScore(opt);
+
+    panel.classList.add("open");
+    panel.setAttribute("aria-hidden", "false");
+
+    planetEls.forEach((el, pid) => el.classList.toggle("active", pid === id));
+    ringEls.forEach((el, rid) => el.classList.toggle("highlight", rid === id));
+  }
+  function closePanel(){
+    panel.classList.remove("open");
+    panel.setAttribute("aria-hidden", "true");
+    planetEls.forEach(el => el.classList.remove("active"));
+    ringEls.forEach(el => el.classList.remove("highlight"));
+    selectedId = null;
+  }
+  function updatePanelScore(opt){
+    panelScore.textContent = `Score: ${computeScore(opt)} / 100`;
+  }
+
+  SLIDERS.forEach(s => {
+    s.el.addEventListener("input", () => {
+      if(!selectedId) return;
+      const opt = findOption(selectedId);
+      if(!opt) return;
+      opt[s.key] = Number(s.el.value);
+      s.valEl.textContent = s.el.value;
+      updatePanelScore(opt);
+      saveState();
+    });
+  });
+
+  function deleteOption(id){
+    const opt = findOption(id);
+    if(!opt) return;
+    if(!confirm(`Delete "${opt.name}"?`)) return;
+    state.options = state.options.filter(o => o.id !== id);
+    runtime.delete(id);
+    if(selectedId === id) closePanel();
+    renderOptionsDOM();
+    saveState();
+  }
+
+  /* ---------------------------------------------------------------------
+     MOOD MODE
+     --------------------------------------------------------------------- */
+  function setMood(mood){
+    state.mood = mood;
+    document.documentElement.setAttribute("data-mood", mood);
+    moodSpeedMult = MOOD_SPEED[mood] || 1;
+    document.querySelectorAll("[data-mood-btn]").forEach(b => {
+      b.classList.toggle("active", b.dataset.moodBtn === mood);
+    });
+    saveState();
+  }
+
+  /* ---------------------------------------------------------------------
+     EVENTS
+     --------------------------------------------------------------------- */
+  function addOption(){
+    const name = optionInput.value.trim();
+    if(!name) return;
+    if(state.options.length >= 8){
+      alert("You can compare up to 8 options at a time for clarity.");
+      return;
+    }
+    const opt = { id:genId(), name, cost:5, effort:5, time:5, benefit:5, risk:5 };
+    state.options.push(opt);
+    renderOptionsDOM();
+    saveState();
+    optionInput.value = "";
+    optionInput.focus();
+  }
+
+  problemInput.addEventListener("input", () => {
+    state.problem = problemInput.value;
+    sunLabel.textContent = state.problem.trim() || "Your Decision";
+    saveState();
+  });
+
+  addOptionBtn.addEventListener("click", addOption);
+  optionInput.addEventListener("keydown", e => { if(e.key === "Enter") addOption(); });
+
+  solveBtn.addEventListener("click", solve);
+  resetBtn.addEventListener("click", () => {
+    if(!confirm("Reset everything? This clears your problem and all options.")) return;
+    localStorage.removeItem(STORAGE_KEY);
+    state = defaultState();
+    runtime.clear();
+    solving = false; solved = false; winnerId = null;
+    problemInput.value = "";
+    sunLabel.textContent = "Your Decision";
+    closePanel();
+    resultCard.classList.remove("show");
+    resultCard.setAttribute("aria-hidden", "true");
+    stage.classList.remove("solving");
+    sunEl.classList.remove("pulse-strong");
+    renderOptionsDOM();
+  });
+
+  closePanelBtn.addEventListener("click", closePanel);
+  deleteOptionBtn.addEventListener("click", () => { if(selectedId) deleteOption(selectedId); });
+  closeResultBtn.addEventListener("click", closeResult);
+
+  document.querySelectorAll("[data-mood-btn]").forEach(btn => {
+    btn.addEventListener("click", () => setMood(btn.dataset.moodBtn));
+  });
+
+  document.addEventListener("click", (e) => {
+    if(panel.classList.contains("open") &&
+       !panel.contains(e.target) &&
+       !e.target.closest(".planet")){
+      closePanel();
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if(e.key === "Escape"){
+      if(panel.classList.contains("open")) closePanel();
+      if(resultCard.classList.contains("show")) closeResult();
+    }
+  });
+
+  window.addEventListener("resize", refreshMetrics);
+
+  /* ---------------------------------------------------------------------
+     INIT
+     --------------------------------------------------------------------- */
+  function init(){
+    document.documentElement.setAttribute("data-mood", state.mood);
+    document.querySelectorAll("[data-mood-btn]").forEach(b => {
+      b.classList.toggle("active", b.dataset.moodBtn === state.mood);
+    });
+    moodSpeedMult = MOOD_SPEED[state.mood] || 1;
+
+    problemInput.value = state.problem;
+    sunLabel.textContent = state.problem.trim() || "Your Decision";
+
+    buildStars();
+    refreshMetrics();
+    renderOptionsDOM();
+    requestAnimationFrame(animate);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
